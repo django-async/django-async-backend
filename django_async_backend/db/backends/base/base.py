@@ -276,6 +276,13 @@ class BaseAsyncDatabaseWrapper:
         self.run_on_commit = []
 
     def check_settings(self):
+        if not self.settings_dict["AUTOCOMMIT"]:
+            raise ImproperlyConfigured(
+                "Connection '%s': AUTOCOMMIT=False is not supported by the "
+                "async backend. Remove it from DATABASES and use "
+                "async_atomic() to group statements in a transaction."
+                % self.alias
+            )
         if self.settings_dict["TIME_ZONE"] is not None and not settings.USE_TZ:
             raise ImproperlyConfigured(
                 "Connection '%s' cannot set TIME_ZONE because USE_TZ is False."
