@@ -3,7 +3,6 @@ import threading
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
-from django.db.backends.base.base import NO_DB_ALIAS
 from django.db.backends.postgresql.base import DatabaseWrapper
 from django.db.backends.postgresql.psycopg_any import (
     IsolationLevel,
@@ -79,7 +78,7 @@ class AsyncDatabaseWrapper(BaseAsyncDatabaseWrapper):
     @property
     def pool(self):
         pool_options = self.settings_dict["OPTIONS"].get("pool")
-        if self.alias == NO_DB_ALIAS or not pool_options:
+        if not pool_options:
             return None
 
         if self.alias not in self._connection_pools:

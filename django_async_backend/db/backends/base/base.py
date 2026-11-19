@@ -34,7 +34,6 @@ from django_async_backend.db.backends.utils import (
 from django_async_backend.db.utils import DatabaseErrorWrapper
 from django_async_backend.utils.await_maybe import await_maybe
 
-NO_DB_ALIAS = "__no_db__"
 RAN_DB_VERSION_CHECK = set()
 
 logger = logging.getLogger("django_async_backend.db.backends.base")
