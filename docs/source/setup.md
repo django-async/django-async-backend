@@ -44,11 +44,6 @@ commands — keeps working unchanged, so you can switch the engine and adopt the
 async API gradually rather than all at once.
 ```
 
-```{note}
-`AUTOCOMMIT=False` is not supported for aliases that async code uses. See
-[Design decisions](design.md).
-```
-
 Make sure `django_async_backend` — and any other required apps — are listed in
 `INSTALLED_APPS`:
 
