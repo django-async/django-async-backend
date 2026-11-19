@@ -45,6 +45,12 @@ releases and are safe to upgrade to.
 > reliably across them. Connection pooling in particular is not supported
 > there.
 
+> [!NOTE]
+> **`AUTOCOMMIT=False` is not supported** for aliases that async code uses:
+> work you don't commit by hand would be lost when the connection closes. Use
+> `async_atomic()` instead. See
+> [Design decisions](https://django-async-backend.readthedocs.io/en/latest/design.html).
+
 ## Installation
 
 ```bash

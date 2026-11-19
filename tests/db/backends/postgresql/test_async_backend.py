@@ -157,20 +157,37 @@ class Tests(AsyncioTestCase):
         finally:
             await new_connection.close()
 
-    async def test_connect_non_autocommit(self):
-        """
-        The connection wrapper shouldn't believe that autocommit is enabled
-        after setting the time zone when AUTOCOMMIT is False (#21452).
-        """
+    async def test_autocommit_false_is_rejected(self):
+        """AUTOCOMMIT=False is not supported (see the design decisions page).
+        The error comes at the first use, not when the wrapper is created:
+        async_connections.all() creates wrappers for every alias, also for
+        those that only sync code uses."""
         new_connection = no_pool_connection()
         new_connection.settings_dict["AUTOCOMMIT"] = False
+        msg = "AUTOCOMMIT=False is not supported by the async backend"
 
         try:
-            # Open a database connection.
-            async with await new_connection.cursor():
-                self.assertFalse(await new_connection.get_autocommit())
+            with self.assertRaisesRegex(ImproperlyConfigured, msg):
+                await new_connection.cursor()
+            self.assertIsNone(new_connection.connection)
         finally:
             await new_connection.close()
+
+    async def test_autocommit_false_alias_does_not_break_other_aliases(self):
+        """An alias with AUTOCOMMIT=False that async code never uses doesn't
+        fail async_connections.all() (the request signals call it)."""
+        settings_dict = copy.deepcopy(
+            async_connections.settings[DEFAULT_DB_ALIAS]
+        )
+        settings_dict["AUTOCOMMIT"] = False
+        async_connections.settings["sync_only"] = settings_dict
+        try:
+            aliases = [conn.alias for conn in async_connections.all()]
+            self.assertIn("sync_only", aliases)
+        finally:
+            await async_connections["sync_only"].close()
+            del async_connections["sync_only"]
+            del async_connections.settings["sync_only"]
 
     async def test_connect_pool(self):
         from psycopg_pool import PoolTimeout
