@@ -5,6 +5,7 @@ from collections import namedtuple
 from unittest import mock
 
 from django.core.exceptions import ImproperlyConfigured
+from django.core.signals import setting_changed
 from django.db import (
     DEFAULT_DB_ALIAS,
     NotSupportedError,
@@ -765,3 +766,87 @@ class ServerSideCursorsPostgresTests(AsyncioTestCase):
             await cursor.fetchone()
 
             await self.assertUsesCursor(query, num_expected=2)
+
+
+class PgVersionTests(AsyncioTestCase):
+    databases = {"default"}
+
+    def spy_sync_connect(self):
+        """Count the sync connections that pg_version opens."""
+        return mock.patch.object(
+            async_base.Database, "connect", wraps=async_base.Database.connect
+        )
+
+    def empty_db_versions(self):
+        """Pretend that no connection was made yet in this process."""
+        return mock.patch.dict(async_base.DB_VERSIONS, clear=True)
+
+    async def server_version(self):
+        async with await async_connections[DEFAULT_DB_ALIAS].cursor() as c:
+            return c.connection.info.server_version
+
+    async def test_pg_version_is_a_number(self):
+        """Django's features compare pg_version with a number while they
+        compile SQL, so it can't be a coroutine function."""
+        version = async_connections[DEFAULT_DB_ALIAS].pg_version
+        self.assertIsInstance(version, int)
+        self.assertEqual(version, await self.server_version())
+
+    async def test_pg_version_saved_by_new_connection(self):
+        new_connection = no_pool_connection()
+        with self.empty_db_versions():
+            try:
+                await new_connection.connect()
+                self.assertEqual(
+                    async_base.DB_VERSIONS[new_connection.alias],
+                    new_connection.connection.info.server_version,
+                )
+                with self.spy_sync_connect() as connect:
+                    new_connection.pg_version
+                connect.assert_not_called()
+            finally:
+                await new_connection.close()
+
+    async def test_pg_version_shared_between_wrappers(self):
+        """Each request gets a new wrapper, but the version is asked once
+        per process."""
+        expected = await self.server_version()
+        with self.empty_db_versions(), self.spy_sync_connect() as connect:
+            self.assertEqual(no_pool_connection().pg_version, expected)
+            self.assertEqual(no_pool_connection().pg_version, expected)
+        self.assertEqual(connect.call_count, 1)
+
+    async def test_pg_version_without_connection(self):
+        """The first query compiles before it connects: pg_version asks the
+        server with one short sync connection."""
+        expected = await self.server_version()
+        new_connection = no_pool_connection()
+        with self.empty_db_versions(), self.spy_sync_connect() as connect:
+            self.assertEqual(new_connection.pg_version, expected)
+        connect.assert_called_once()
+        # The async cursor factory isn't passed to the sync connection.
+        self.assertNotIn("cursor_factory", connect.call_args.kwargs)
+        self.assertEqual(
+            connect.call_args.kwargs["connect_timeout"],
+            async_base.SYNC_VERSION_CONNECT_TIMEOUT,
+        )
+        self.assertIsNone(new_connection.connection)
+
+    async def test_pg_version_keeps_connect_timeout_from_options(self):
+        new_connection = no_pool_connection()
+        new_connection.settings_dict["OPTIONS"]["connect_timeout"] = 2
+        with self.empty_db_versions(), self.spy_sync_connect() as connect:
+            new_connection.pg_version
+        self.assertEqual(connect.call_args.kwargs["connect_timeout"], 2)
+
+    async def test_pg_version_cleared_when_databases_change(self):
+        with self.empty_db_versions():
+            async_base.DB_VERSIONS["other"] = 150000
+            setting_changed.send(
+                sender=None, setting="TIME_ZONE", value=None, enter=True
+            )
+            self.assertEqual(async_base.DB_VERSIONS, {"other": 150000})
+            setting_changed.send(
+                sender=None, setting="DATABASES", value=None, enter=True
+            )
+            self.assertEqual(async_base.DB_VERSIONS, {})
