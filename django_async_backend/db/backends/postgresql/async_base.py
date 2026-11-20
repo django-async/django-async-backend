@@ -373,24 +373,6 @@ class AsyncDatabaseWrapper(BaseAsyncDatabaseWrapper):
         with self.wrap_database_errors:
             await self.connection.set_autocommit(autocommit)
 
-    async def is_usable(self):
-        if self.connection is None:
-            return False
-        try:
-            # Use a psycopg cursor directly, bypassing Django's utilities.
-            async with self.connection.cursor() as cursor:
-                await cursor.execute("SELECT 1")
-        except Database.Error:
-            return False
-        else:
-            return True
-
-    async def close_if_health_check_failed(self):
-        if self.pool:
-            # The pool only returns healthy connections.
-            return
-        return await super().close_if_health_check_failed()
-
     async def pg_version(self):
         if self._pg_version is None:
             async with self.temporary_connection():

@@ -32,3 +32,19 @@ block.
 **What to do instead:** Keep `AUTOCOMMIT=True` (the default). Use
 [`async_atomic()`](transactions.md) when several statements must commit
 together.
+
+## `CONN_MAX_AGE` has no effect
+
+**Decision:** The async backend ignores `CONN_MAX_AGE` and shows a
+`RuntimeWarning` when async code connects with an alias that sets it to a
+value other than `0`. With a connection pool, a value other than `0` raises
+`ImproperlyConfigured`, as in Django.
+
+**Why:** The backend closes async connections at the end of each request, so
+no connection lives long enough for a maximum age to matter. For the same
+reason, `CONN_HEALTH_CHECKS` only works with a pool: the pool checks a
+connection before it gives it out.
+
+**What to do instead:** Remove `CONN_MAX_AGE` from `DATABASES`, or set it to
+`0`. To reuse connections between requests, use a
+[connection pool](connections.md).

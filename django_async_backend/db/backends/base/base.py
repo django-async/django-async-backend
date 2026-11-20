@@ -4,7 +4,6 @@ import copy
 import datetime
 import logging
 import threading
-import time
 import warnings
 import zoneinfo
 from collections import deque
@@ -94,11 +93,7 @@ class BaseAsyncDatabaseWrapper:
         self.rollback_exc = None
 
         # Connection termination related attributes.
-        self.close_at = None
         self.closed_in_transaction = False
-        self.errors_occurred = False
-        self.health_check_enabled = False
-        self.health_check_done = False
 
         # Thread-safety related attributes.
         self._thread_sharing_lock = threading.Lock()
@@ -258,14 +253,7 @@ class BaseAsyncDatabaseWrapper:
         self.savepoint_ids = []
         self.atomic_blocks = []
         self.needs_rollback = False
-        # Reset parameters defining when to close/health-check the connection.
-        self.health_check_enabled = self.settings_dict["CONN_HEALTH_CHECKS"]
-        max_age = self.settings_dict["CONN_MAX_AGE"]
-        self.close_at = None if max_age is None else time.monotonic() + max_age
         self.closed_in_transaction = False
-        self.errors_occurred = False
-        # New connections are healthy.
-        self.health_check_done = True
         # Establish the connection
         conn_params = self.get_connection_params()
         self.connection = await self.get_new_connection(conn_params)
@@ -282,6 +270,13 @@ class BaseAsyncDatabaseWrapper:
                 "async backend. Remove it from DATABASES and use "
                 "async_atomic() to group statements in a transaction."
                 % self.alias
+            )
+        if self.settings_dict["CONN_MAX_AGE"] != 0:
+            warnings.warn(
+                "Connection '%s': CONN_MAX_AGE has no effect in the async "
+                "backend. Connections are closed at the end of each request. "
+                "Use a connection pool to reuse connections." % self.alias,
+                RuntimeWarning,
             )
         if self.settings_dict["TIME_ZONE"] is not None and not settings.USE_TZ:
             raise ImproperlyConfigured(
@@ -321,7 +316,6 @@ class BaseAsyncDatabaseWrapper:
         return wrapped_cursor
 
     async def _cursor(self, name=None):
-        await self.close_if_health_check_failed()
         await self.ensure_connection()
 
         with self.wrap_database_errors:
@@ -356,8 +350,6 @@ class BaseAsyncDatabaseWrapper:
         self.validate_task_sharing()
         self.validate_no_atomic_block()
         await self._commit()
-        # A successful commit means that the database connection works.
-        self.errors_occurred = False
         self.run_commit_hooks_on_set_autocommit_on = True
 
     async def rollback(self):
@@ -366,8 +358,6 @@ class BaseAsyncDatabaseWrapper:
         self.validate_task_sharing()
         self.validate_no_atomic_block()
         await self._rollback()
-        # A successful rollback means that the database connection works.
-        self.errors_occurred = False
         self.needs_rollback = False
         self.run_on_commit = []
 
@@ -503,7 +493,6 @@ class BaseAsyncDatabaseWrapper:
         backends.
         """
         self.validate_no_atomic_block()
-        await self.close_if_health_check_failed()
         await self.ensure_connection()
 
         start_transaction_under_autocommit = (
@@ -556,62 +545,6 @@ class BaseAsyncDatabaseWrapper:
                 "An error occurred in the current transaction. You can't "
                 "execute queries until the end of the 'atomic' block."
             ) from self.rollback_exc
-
-    # ##### Connection termination handling #####
-
-    async def is_usable(self):
-        """
-        Test if the database connection is usable.
-
-        This method may assume that self.connection is not None.
-
-        Actual implementations should take care not to raise exceptions
-        as that may prevent Django from recycling unusable connections.
-        """
-        raise NotImplementedError(
-            "subclasses of BaseAsyncDatabaseWrapper may "
-            "require an is_usable() method"
-        )
-
-    async def close_if_health_check_failed(self):
-        """Close existing connection if it fails a health check."""
-        if (
-            self.connection is None
-            or not self.health_check_enabled
-            or self.health_check_done
-        ):
-            return
-
-        if not await self.is_usable():
-            await self.close()
-        self.health_check_done = True
-
-    async def close_if_unusable_or_obsolete(self):
-        """
-        Close the current connection if unrecoverable errors have occurred
-        or if it outlived its maximum age.
-        """
-        if self.connection is not None:
-            self.health_check_done = False
-            # If the application didn't restore the original autocommit
-            # setting, don't take chances, drop the connection.
-            if await self.get_autocommit() != self.settings_dict["AUTOCOMMIT"]:
-                await self.close()
-                return
-
-            # If an exception other than DataError or IntegrityError occurred
-            # since the last commit / rollback, check if the connection works.
-            if self.errors_occurred:
-                if await self.is_usable():
-                    self.errors_occurred = False
-                    self.health_check_done = True
-                else:
-                    await self.close()
-                    return
-
-            if self.close_at is not None and time.monotonic() >= self.close_at:
-                await self.close()
-                return
 
     # ##### Thread safety handling #####
 

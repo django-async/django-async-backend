@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import warnings
 from collections import namedtuple
 from unittest import mock
 
@@ -170,6 +171,31 @@ class Tests(AsyncioTestCase):
             with self.assertRaisesRegex(ImproperlyConfigured, msg):
                 await new_connection.cursor()
             self.assertIsNone(new_connection.connection)
+        finally:
+            await new_connection.close()
+
+    async def test_conn_max_age_warns(self):
+        """CONN_MAX_AGE has no effect: connections are closed at the end of
+        each request. Warn instead of ignoring it without a word."""
+        msg = "CONN_MAX_AGE has no effect in the async backend"
+        for max_age in (60, None):
+            with self.subTest(max_age=max_age):
+                new_connection = no_pool_connection()
+                new_connection.settings_dict["CONN_MAX_AGE"] = max_age
+                try:
+                    with self.assertWarnsRegex(RuntimeWarning, msg):
+                        await new_connection.connect()
+                    self.assertIsNotNone(new_connection.connection)
+                finally:
+                    await new_connection.close()
+
+    async def test_conn_max_age_zero_does_not_warn(self):
+        new_connection = no_pool_connection()
+        new_connection.settings_dict["CONN_MAX_AGE"] = 0
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                await new_connection.connect()
         finally:
             await new_connection.close()
 
@@ -466,15 +492,6 @@ class Tests(AsyncioTestCase):
             self.assertEqual(
                 new_connection.connection.cursor_factory, MyCursor
             )
-        finally:
-            await new_connection.close()
-
-    async def test_connect_no_is_usable_checks(self):
-        new_connection = no_pool_connection()
-        try:
-            with mock.patch.object(new_connection, "is_usable") as is_usable:
-                await new_connection.connect()
-            is_usable.assert_not_called()
         finally:
             await new_connection.close()
 
