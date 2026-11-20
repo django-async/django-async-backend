@@ -3,6 +3,7 @@ import threading
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
+from django.core.signals import setting_changed
 from django.db.backends.postgresql.base import DatabaseWrapper
 from django.db.backends.postgresql.psycopg_any import (
     IsolationLevel,
@@ -31,6 +32,24 @@ if not is_psycopg3:
 
 
 TIMESTAMPTZ_OID = Database.adapters.types["timestamptz"].oid
+
+# Server version of each alias, e.g. {"default": 160004}. A request gets a
+# new wrapper, but the server stays the same while the process runs, so
+# every wrapper shares this.
+DB_VERSIONS = {}
+
+# Seconds to wait for the sync connection in pg_version. It blocks the event
+# loop, so don't wait forever when the server is down.
+SYNC_VERSION_CONNECT_TIMEOUT = 5
+
+
+def _clear_db_versions(*, setting, **kwargs):
+    # Tests may point an alias at another server.
+    if setting == "DATABASES":
+        DB_VERSIONS.clear()
+
+
+setting_changed.connect(_clear_db_versions)
 
 
 async def async_mogrify(sql, params, connection):
@@ -73,7 +92,6 @@ class AsyncDatabaseWrapper(BaseAsyncDatabaseWrapper):
     # PostgreSQL backend-specific attributes.
     _named_cursor_idx = 0
     _connection_pools = {}
-    _pg_version = None
 
     @property
     def pool(self):
@@ -131,7 +149,7 @@ class AsyncDatabaseWrapper(BaseAsyncDatabaseWrapper):
         Return a tuple of the database's version.
         E.g. for pg_version 120004, return (12, 4).
         """
-        return divmod(await self.pg_version(), 10000)
+        return divmod(self.pg_version, 10000)
 
     def get_connection_params(self):
         settings_dict = self.settings_dict
@@ -234,6 +252,9 @@ class AsyncDatabaseWrapper(BaseAsyncDatabaseWrapper):
             self.connection = await self.Database.AsyncConnection.connect(
                 **conn_params
             )
+        # The server sends its version when the connection starts without
+        # a sync call in the pg_version method
+        DB_VERSIONS[self.alias] = self.connection.info.server_version
         if set_isolation_level:
             await self.connection.set_isolation_level(self.isolation_level)
 
@@ -373,12 +394,28 @@ class AsyncDatabaseWrapper(BaseAsyncDatabaseWrapper):
         with self.wrap_database_errors:
             await self.connection.set_autocommit(autocommit)
 
-    async def pg_version(self):
-        if self._pg_version is None:
-            async with self.temporary_connection():
-                self._pg_version = self.connection.info.server_version
-
-        return self._pg_version
+    @property
+    def pg_version(self):
+        """
+        The server version, e.g. 160004. It's sync because Django's features
+        read it while they compile SQL.
+        """
+        try:
+            return DB_VERSIONS[self.alias]
+        except KeyError:
+            pass
+        # No connection was made on this alias yet: the first query compiles
+        # before it connects. Ask the server with a short sync connection.
+        # It blocks the event loop, but only once per alias per process.
+        conn_params = self.get_connection_params()
+        # The cursor factory is async: a sync connection can't use it.
+        conn_params.pop("cursor_factory", None)
+        conn_params.setdefault("connect_timeout", SYNC_VERSION_CONNECT_TIMEOUT)
+        with self.wrap_database_errors:
+            with self.Database.connect(**conn_params) as connection:
+                version = connection.info.server_version
+        DB_VERSIONS[self.alias] = version
+        return version
 
     def make_debug_cursor(self, cursor):
         return AsyncCursorDebugWrapper(cursor, self)
