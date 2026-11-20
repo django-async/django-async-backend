@@ -189,15 +189,31 @@ class Tests(AsyncioTestCase):
                 finally:
                     await new_connection.close()
 
-    async def test_conn_max_age_zero_does_not_warn(self):
-        new_connection = no_pool_connection()
-        new_connection.settings_dict["CONN_MAX_AGE"] = 0
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("error")
-                await new_connection.connect()
-        finally:
-            await new_connection.close()
+    async def test_conn_max_age_default_does_not_warn(self):
+        """CONN_MAX_AGE defaults to 0, so a project that doesn't set it gets
+        no warning."""
+        for case in ("explicit 0", "not set"):
+            with self.subTest(case=case):
+                new_connection = no_pool_connection()
+                if case == "explicit 0":
+                    new_connection.settings_dict["CONN_MAX_AGE"] = 0
+                else:
+                    del new_connection.settings_dict["CONN_MAX_AGE"]
+                    new_connection.settings_dict = (
+                        async_connections.configure_settings(
+                            {DEFAULT_DB_ALIAS: new_connection.settings_dict}
+                        )[DEFAULT_DB_ALIAS]
+                    )
+                    self.assertEqual(
+                        new_connection.settings_dict["CONN_MAX_AGE"], 0
+                    )
+                try:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("error")
+                        await new_connection.connect()
+                    self.assertIsNotNone(new_connection.connection)
+                finally:
+                    await new_connection.close()
 
     async def test_autocommit_false_alias_does_not_break_other_aliases(self):
         """An alias with AUTOCOMMIT=False that async code never uses doesn't
