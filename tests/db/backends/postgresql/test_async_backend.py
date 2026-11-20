@@ -15,6 +15,7 @@ from django.db.backends.postgresql.psycopg_any import errors
 from django.test import override_settings
 
 from django_async_backend.db import async_connections
+from django_async_backend.db.backends.base import base
 from django_async_backend.db.backends.postgresql import async_base
 from django_async_backend.test import AsyncioTestCase
 
@@ -793,19 +794,26 @@ class PgVersionTests(AsyncioTestCase):
         self.assertEqual(version, await self.server_version())
 
     async def test_pg_version_saved_by_new_connection(self):
+        """The first connection of the process saves the version before the
+        version check reads it, so no sync connection is needed."""
         new_connection = no_pool_connection()
-        with self.empty_db_versions():
+        with (
+            self.empty_db_versions(),
+            mock.patch.object(base, "RAN_DB_VERSION_CHECK", set()),
+            self.spy_sync_connect() as connect,
+        ):
             try:
                 await new_connection.connect()
+                # The version check ran and read pg_version.
+                self.assertIn(new_connection.alias, base.RAN_DB_VERSION_CHECK)
                 self.assertEqual(
                     async_base.DB_VERSIONS[new_connection.alias],
                     new_connection.connection.info.server_version,
                 )
-                with self.spy_sync_connect() as connect:
-                    new_connection.pg_version
-                connect.assert_not_called()
+                new_connection.pg_version
             finally:
                 await new_connection.close()
+        connect.assert_not_called()
 
     async def test_pg_version_shared_between_wrappers(self):
         """Each request gets a new wrapper, but the version is asked once
