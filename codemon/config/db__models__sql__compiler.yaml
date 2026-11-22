@@ -120,8 +120,6 @@ module:
             - func:
                 attr: execute_sql
               to_await: true
-            # connection.cursor() is an async context manager itself: no
-            # await before `async with`.
             - func:
                 value: cursor
                 attr: execute
@@ -138,8 +136,6 @@ module:
             - asname: cursor
               to_async: true
           calls:
-            # connection.cursor() is an async context manager itself: no
-            # await before `async with`.
             - func:
                 value: cursor
                 attr: execute
