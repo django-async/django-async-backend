@@ -12,6 +12,7 @@ from django.test.utils import override_settings
 
 from django_async_backend.db import async_connections
 from django_async_backend.db.backends.base.base import BaseAsyncDatabaseWrapper
+from django_async_backend.db.backends.utils import AsyncCursorWrapper
 from django_async_backend.db.transaction import async_atomic
 from django_async_backend.test import (
     AsyncioTestCase,
@@ -427,3 +428,77 @@ class MultiDatabaseTests(AsyncioTransactionTestCase):
                             len(mocked_database_version_supported.mock_calls),
                             after_first_calls,
                         )
+
+
+class CursorContextManagerTests(AsyncioTestCase):
+    """connection.cursor() works with ``async with`` directly, and can still
+    be awaited (#59)."""
+
+    databases = {"default"}
+
+    def connection(self):
+        return async_connections[DEFAULT_DB_ALIAS]
+
+    async def test_async_with_without_await(self):
+        async with self.connection().cursor() as cursor:
+            await cursor.execute("SELECT 1")
+            self.assertEqual(await cursor.fetchone(), (1,))
+
+        self.assertIsInstance(cursor, AsyncCursorWrapper)
+        self.assertTrue(cursor.closed)
+
+    async def test_await_still_works(self):
+        cursor = await self.connection().cursor()
+        try:
+            self.assertIsInstance(cursor, AsyncCursorWrapper)
+            await cursor.execute("SELECT 1")
+            self.assertEqual(await cursor.fetchone(), (1,))
+        finally:
+            await cursor.close()
+        self.assertTrue(cursor.closed)
+
+    async def test_async_with_await_still_works(self):
+        async with await self.connection().cursor() as cursor:
+            await cursor.execute("SELECT 1")
+            self.assertEqual(await cursor.fetchone(), (1,))
+
+        self.assertTrue(cursor.closed)
+
+    async def test_cursor_closed_on_error(self):
+        with self.assertRaisesRegex(ValueError, "boom"):
+            async with self.connection().cursor() as cursor:
+                raise ValueError("boom")
+
+        self.assertTrue(cursor.closed)
+
+    async def test_cursor_closed_on_cancel(self):
+        # asyncio.timeout() cancels this task while the query runs.
+        with self.assertRaises(TimeoutError):
+            async with asyncio.timeout(0.2):
+                async with self.connection().cursor() as cursor:
+                    await cursor.execute("SELECT pg_sleep(5)")
+
+        self.assertTrue(cursor.closed)
+
+    async def test_chunked_cursor_async_with(self):
+        async with self.connection().chunked_cursor() as cursor:
+            await cursor.execute("SELECT generate_series(1, 3)")
+            self.assertEqual(await cursor.fetchone(), (1,))
+
+        self.assertTrue(cursor.closed)
+        # The server-side cursor is gone too.
+        async with self.connection().cursor() as check:
+            await check.execute(
+                "SELECT count(*) FROM pg_cursors WHERE name = %s",
+                [cursor.name],
+            )
+            self.assertEqual(await check.fetchone(), (0,))
+
+    async def test_chunked_cursor_await_still_works(self):
+        cursor = await self.connection().chunked_cursor()
+        try:
+            await cursor.execute("SELECT generate_series(1, 3)")
+            self.assertEqual(await cursor.fetchone(), (1,))
+        finally:
+            await cursor.close()
+        self.assertTrue(cursor.closed)

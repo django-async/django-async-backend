@@ -27,6 +27,7 @@ from django.db.utils import ProgrammingError
 from django.utils.functional import cached_property
 
 from django_async_backend.db.backends.utils import (
+    AsyncCursorContextManager,
     AsyncCursorDebugWrapper,
     AsyncCursorWrapper,
 )
@@ -341,8 +342,11 @@ class BaseAsyncDatabaseWrapper:
     # ##### Generic wrappers for PEP-249 connection methods #####
 
     def cursor(self):
-        """Create a cursor, opening a connection if necessary."""
-        return self._cursor()
+        """
+        Create a cursor, opening a connection if necessary. Use it with
+        ``async with``, or ``await`` it.
+        """
+        return AsyncCursorContextManager(self._cursor())
 
     async def commit(self):
         """Commit a transaction and reset the dirty flag."""
@@ -385,15 +389,15 @@ class BaseAsyncDatabaseWrapper:
     # ##### Backend-specific savepoint management methods #####
 
     async def _savepoint(self, sid):
-        async with await self.cursor() as cursor:
+        async with self.cursor() as cursor:
             await cursor.execute(self.ops.savepoint_create_sql(sid))
 
     async def _savepoint_rollback(self, sid):
-        async with await self.cursor() as cursor:
+        async with self.cursor() as cursor:
             await cursor.execute(self.ops.savepoint_rollback_sql(sid))
 
     async def _savepoint_commit(self, sid):
-        async with await self.cursor() as cursor:
+        async with self.cursor() as cursor:
             await cursor.execute(self.ops.savepoint_commit_sql(sid))
 
     async def _savepoint_allowed(self):
@@ -648,7 +652,7 @@ class BaseAsyncDatabaseWrapper:
         """
         must_close = self.connection is None
         try:
-            async with await self.cursor() as cursor:
+            async with self.cursor() as cursor:
                 yield cursor
         finally:
             if must_close:

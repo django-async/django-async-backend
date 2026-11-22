@@ -1940,7 +1940,7 @@ class SQLInsertCompiler(SQLCompiler):
         opts = self.query.get_meta()
         self.returning_fields = returning_fields
         cols = []
-        async with await self.connection.cursor() as cursor:
+        async with self.connection.cursor() as cursor:
             for sql, params in self.as_sql():
                 await cursor.execute(sql, params)
             if not self.returning_fields:
@@ -2160,7 +2160,7 @@ class SQLUpdateCompiler(SQLCompiler):
             return [()] * row_count
 
         self.returning_fields = returning_fields
-        async with await self.connection.cursor() as cursor:
+        async with self.connection.cursor() as cursor:
             sql, params = self.as_sql()
             await cursor.execute(sql, params)
             rows = await cursor.fetchall()
