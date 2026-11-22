@@ -150,7 +150,7 @@ async def main() -> None:
     connection = async_connections["default"]
 
     async with async_atomic():
-        async with await connection.cursor() as cursor:
+        async with connection.cursor() as cursor:
             await cursor.execute(
                 "INSERT INTO app_book (name) VALUES (%s) RETURNING id",
                 ["Django"],
@@ -165,7 +165,7 @@ async def main() -> None:
                 [["a"], ["b"]],
             )
 
-    async with await connection.cursor() as cursor:
+    async with connection.cursor() as cursor:
         await cursor.execute("SELECT id, name FROM app_book ORDER BY name")
 
         print(cursor.rowcount)

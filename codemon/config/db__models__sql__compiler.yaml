@@ -121,9 +121,6 @@ module:
                 attr: execute_sql
               to_await: true
             - func:
-                attr: cursor
-              to_await: true
-            - func:
                 value: cursor
                 attr: execute
               to_await: true
@@ -139,9 +136,6 @@ module:
             - asname: cursor
               to_async: true
           calls:
-            - func:
-                attr: cursor
-              to_await: true
             - func:
                 value: cursor
                 attr: execute

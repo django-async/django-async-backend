@@ -14,6 +14,7 @@ from django.db.backends.postgresql.psycopg_any import (
 )
 
 from django_async_backend.db.backends.base.base import BaseAsyncDatabaseWrapper
+from django_async_backend.db.backends.utils import AsyncCursorContextManager
 from django_async_backend.db.backends.utils import (
     AsyncCursorDebugWrapper as BaseAsyncCursorDebugWrapper,
 )
@@ -53,7 +54,7 @@ setting_changed.connect(_clear_db_versions)
 
 
 async def async_mogrify(sql, params, connection):
-    async with await connection.cursor() as cursor:
+    async with connection.cursor() as cursor:
         return AsyncCursor(cursor.connection).mogrify(sql, params)
 
 
@@ -380,13 +381,15 @@ class AsyncDatabaseWrapper(BaseAsyncDatabaseWrapper):
         else:
             task_ident = "sync"
         # Use that and the thread ident to get a unique name
-        return self._cursor(
-            name="_django_curs_%d_%s_%d"
-            % (
-                # Avoid reusing name in other threads / tasks
-                threading.current_thread().ident,
-                task_ident,
-                self._named_cursor_idx,
+        return AsyncCursorContextManager(
+            self._cursor(
+                name="_django_curs_%d_%s_%d"
+                % (
+                    # Avoid reusing name in other threads / tasks
+                    threading.current_thread().ident,
+                    task_ident,
+                    self._named_cursor_idx,
+                )
             )
         )
 

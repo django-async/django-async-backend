@@ -12,6 +12,36 @@ from django_async_backend.utils.await_maybe import await_maybe
 logger = logging.getLogger("django_async_backend.db.backends")
 
 
+class AsyncCursorContextManager:
+    """
+    What connection.cursor() returns. Use it in two ways:
+
+        async with connection.cursor() as cursor:   # closes the cursor
+            ...
+        cursor = await connection.cursor()           # close it yourself
+
+    With ``async with``, the cursor is created inside __aenter__, so there
+    is no await between creating it and entering the block where a
+    cancellation could leak it.
+    """
+
+    __slots__ = ("_coro", "_cursor")
+
+    def __init__(self, coro):
+        self._coro = coro
+        self._cursor = None
+
+    def __await__(self):
+        return self._coro.__await__()
+
+    async def __aenter__(self):
+        self._cursor = await self._coro
+        return await self._cursor.__aenter__()
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        return await self._cursor.__aexit__(exc_type, exc_value, traceback)
+
+
 class AsyncCursorWrapper:
 
     def __init__(self, cursor, db):

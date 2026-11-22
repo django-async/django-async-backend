@@ -9,7 +9,7 @@ from django_async_backend.db import async_connections
 
 connection = async_connections["default"]
 
-async with await connection.cursor() as cursor:
+async with connection.cursor() as cursor:
     await cursor.execute("SELECT ...")
     rows = await cursor.fetchall()
 
@@ -25,15 +25,34 @@ concurrent queries.
 
 ## Cursors
 
-`await connection.cursor()` returns an `AsyncCursorWrapper` around the
-underlying {pypi}`psycopg` cursor. The most commonly used methods are:
+`connection.cursor()` gives an `AsyncCursorWrapper` around the underlying
+{pypi}`psycopg` cursor. Use it with `async with`, which closes the cursor at
+the end of the block, also on an error or a cancellation:
+
+```python
+async with connection.cursor() as cursor:
+    ...
+```
+
+You can also `await` it, but then you must close the cursor yourself:
+
+```python
+cursor = await connection.cursor()
+try:
+    ...
+finally:
+    await cursor.close()
+```
+
+`connection.chunked_cursor()` works the same way. The most commonly used
+methods are:
 
 - `execute` / `executemany` — awaitable;
 - `fetchone` / `fetchmany` / `fetchall` — awaitable;
-- `close` — awaitable, though the async context manager closes for you.
+- `close` — awaitable, though `async with` closes the cursor for you.
 
 ```python
-async with await connection.cursor() as cursor:
+async with connection.cursor() as cursor:
     await cursor.execute("SELECT 1")
     row = await cursor.fetchone()
 ```
@@ -53,7 +72,7 @@ convention rather than being uniformly awaitable:
 - `rowcount`, `rownumber` and `description` — attributes, not calls.
 
 ```python
-async with await connection.cursor() as cursor:
+async with connection.cursor() as cursor:
     await cursor.execute("SELECT id, name FROM app_book")
 
     print(cursor.rowcount)
@@ -64,7 +83,7 @@ Cursors are also async-iterable, which streams rows without materializing them
 all at once:
 
 ```python
-async with await connection.cursor() as cursor:
+async with connection.cursor() as cursor:
     await cursor.execute("SELECT id FROM app_book")
 
     async for row in cursor:
