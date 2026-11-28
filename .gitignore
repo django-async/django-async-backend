@@ -216,3 +216,7 @@ upgrade_plan.*.md
 
 # claude
 .claude/plans/
+
+# openspec
+openspec/changes/archive/*
+!openspec/changes/archive/.gitkeep

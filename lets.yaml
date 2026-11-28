@@ -5,15 +5,17 @@ mixins:
 
 
 init: |
-  [ -e ".lets/init" ] && exit 0
+  [ -e ".lets/init1" ] && exit 0
   echo ✅ install pre-commit
   pip install pre-commit --break-system-packages
   echo ✅ init pre-commit
   pre-commit install
+  echo ✅ install openspec
+  npm install -g @fission-ai/openspec@1.13.2
   echo ✅ setup .git-blame-ignore-revs
   git config blame.ignoreRevsFile .git-blame-ignore-revs
   echo ✅ Done!
-  touch .lets/init
+  touch .lets/init1
 
 commands:
   _test_database:
@@ -32,7 +34,7 @@ commands:
   generate:
     description: Generate ORM
     env:
-      SKIP: flake8
+      SKIP: flake8,openspec-archived
     cmd: |
       generated=$(sed -n 's|^pathname: *|django_async_backend/|p' codemon/config/*.yaml)
 

@@ -45,3 +45,11 @@ repos:
         - id: bandit
           args: ["-c", "pyproject.toml", "-r", "."]
           additional_dependencies: [".[toml]"]
+    -   repo: local
+        hooks:
+        - id: openspec-archived
+          name: check openspec changes are archived
+          entry: python scripts/pre_commit/openspec_archived.py
+          language: system
+          files: ^openspec/
+          pass_filenames: false

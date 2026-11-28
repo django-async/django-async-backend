@@ -1,0 +1,6 @@
+# Files installed by `openspec init` / `openspec update`
+.claude/skills/openspec-*/** linguist-generated=true
+.claude/commands/opsx/** linguist-generated=true
+
+# OpenSpec specs and changes: collapsed in diffs by default
+openspec/** linguist-generated=true
