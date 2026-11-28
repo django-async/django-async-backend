@@ -42,10 +42,15 @@ django = ">=6.1"
 psycopg = "^3.2.13"
 psycopg-binary = {version = "^3.2.13", optional = true}
 psycopg-pool = {version = "^3", optional = true}
+asyncmy = {version = ">=0.2,<0.3", optional = true}
+mysqlclient = {version = ">=2.2,<3", optional = true}
+pymysql = {version = ">=1.1,<2", optional = true}
 
 [tool.poetry.extras]
 binary = ["psycopg-binary"]
 pool = ["psycopg-pool"]
+mariadb = ["asyncmy", "mysqlclient"]
+mariadb-pymysql = ["asyncmy", "pymysql"]
 
 
 [tool.poetry.group.dev.dependencies]
